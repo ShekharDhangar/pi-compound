@@ -1,0 +1,9 @@
+{
+  "name": "pi-compound",
+  "version": "0.1.0",
+  "description": "A verifier-centered, prompt-driven engineering workflow for pi: set an executable target, then an unattended verify-fix loop runs against it — on a branch, fenced by a guardrail hook, with a deterministic verifier that can't be faked or weakened.",
+  "pi": {
+    "extensions": ["./index.ts"],
+    "prompts": ["./prompts"]
+  }
+}
