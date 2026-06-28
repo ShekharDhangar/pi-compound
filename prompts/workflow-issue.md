@@ -5,69 +5,46 @@ description: pi-compound — direct issue path (spec → plan → implement → 
 You are orchestrating the pi-compound **issue** workflow for: `$ARGUMENTS`
 
 You are the parent/controller. Use the `subagent` tool to delegate; keep decision-making yourself.
-Call `set_stage` (flow: "issue") at each transition so the footer tracks progress.
+Call `set_stage` (flow: "issue") at each transition. Follow `AGENTS.md` and `constitution.md`.
 
-First-principles, simplicity-biased throughout. Follow `AGENTS.md` and `constitution.md`.
-
-## 0. Isolate (branch — so the unattended loop can't touch my live tree)
-- If the working tree has **uncommitted changes, stop and ask me** — don't clobber my WIP.
-- Create/switch to a dedicated branch: `git switch -c pi-compound/<slug>` (reuse it if resuming).
-- All work happens on this branch. **Never commit on `main`/`master`. Never `git push`** (the
-  extension blocks it) — at gate 3 I review the branch diff and merge/push myself.
+## 0. Isolate
+If the working tree has **uncommitted changes, stop and ask me**. Otherwise: `git switch -c pi-compound/<slug>`.
 
 ## 1. Spec  → `set_stage("issue", "Spec")`
-Write `.pi/work/<slug>/spec.md` with three visible sections:
-- **Intent** — what the issue is, constraints, failure modes (the issue text is the intent).
-- **Context** — the relevant code/stack (use `scout` if you need to understand the codebase first).
-- **Acceptance** — the done-condition. Write the prose version in `spec.md`, **and** write the
-  machine-checkable version as **`.pi/work/<slug>/acceptance.sh`**: a bash script that **exits 0 iff
-  the work meets the done-condition** (include any fixtures it needs, e.g. an `expected.txt` to diff
-  against). This script is the real target — the deterministic verifier runs it, so a model can't
-  fake a pass. Make it genuinely test the intent (not a trivially-passing stub). If you can't form a
-  checkable condition confidently, **ask me one question** or suggest `/workflow-feature`. Never vacuous.
-- **Red-green check (the test must discriminate).** Immediately run `check_acceptance` on the
-  *unchanged* codebase — it **must FAIL** now (the change isn't made yet). If a brand-new acceptance
-  **passes** before any work, it tests nothing real → fix it or **ask me**. A test that never fails is
-  worse than no test.
+**Greenfield vs brownfield:** scout the codebase — is the affected code new or does something depend on it?
+- **Greenfield** → breaking changes fine, no shims, no deprecation wrappers, implement cleanly. Record `greenfield: yes` in Intent.
+- **Brownfield** → note what must not break in Out of Scope.
+- **Only ask me** if you've determined something depends on the touched code: "This touches [X], which [Y] depends on. Does it need to remain backward-compatible?" I will tell you whether to maintain compat or treat as greenfield. Do not ask if the code is clearly new.
+
+Write `.pi/work/<slug>/spec.md` with four sections:
+- **Intent** — what the issue is, constraints, failure modes.
+- **Context** — the relevant code/stack (`scout` if needed).
+- **Out of Scope** — what must NOT be touched. Be explicit; the worker is bound by this list.
+- **Acceptance** — prose done-condition here, plus **`.pi/work/<slug>/acceptance.sh`**: exits 0 iff done (include fixtures, e.g. `expected.txt`). If you can't form a checkable condition, **ask me** or suggest `/workflow-feature`.
+
+**Red-green check.** Run `check_acceptance` on the *unchanged* codebase — it **must FAIL**. If it passes before any work, fix it or ask me.
 
 ## 2. Plan  → `set_stage("issue", "Plan")`
-Delegate to the `planner` subagent (read-only): produce `.pi/work/<slug>/plan/` as **multiple
-`task-NN.md` files + a `tracker.md`** — never one giant file, even for a single task. Each task
-states its file scope and a short functional description.
+`planner` subagent (read-only): produce `.pi/work/<slug>/plan/` as multiple `task-NN.md` files + `tracker.md` — never one giant file. Each task states its file scope and a short functional description.
 
-**→ Approve the TARGET before I leave (the one gate that matters).** Pause and show me **both the
-plan and `acceptance.sh`** for approval. The acceptance is what the unattended loop is graded
-against — your OK on it is what makes leaving the room safe. (A model wrote it; you own it.) Nothing
-runs until you approve. **On my approval, write an empty `.pi/work/<slug>/.frozen` file** — that
-activates the freeze, and the extension then mechanically blocks any agent edit to `acceptance.sh`.
+**Gap-fill.** Cross-check the task list against `acceptance.sh`: every testable condition needs at least one task. Add missing `task-NN.md` files before proceeding.
+
+**→ Pause for my approval.** Show me the plan and `acceptance.sh`. On approval, write `.pi/work/<slug>/.frozen`.
 
 ## 3. Implement — the unattended verify-fix loop  → `set_stage("issue", "Implement · task N/total")`
-After I approve, run autonomously **without me present**. The **verifier is my stand-in** — it,
-not me, decides whether to continue. Don't stop for me until a stop condition below.
+Per task in order:
+- `worker` implements the task (code + unit/behaviour tests). A new task discovered mid-flight gets its own `task-NN.md` first.
+- **Verify** after every 5 completed tasks and at the end (≤5 tasks → end only):
+  - **(a) Acceptance.** Call `check_acceptance` — its exit code is the verdict. FAIL → feed real output to `worker`, fix, re-run.
+  - **(b) Judgment.** Fresh-context `reviewer` via `/review-loop` against `review-rubric.md`. Adds findings; cannot override a FAIL.
 
-**`acceptance.sh` is FROZEN here.** `worker` makes the *code* pass the approved test — it may **not**
-edit `acceptance.sh` or its fixtures. If a worker believes the acceptance is wrong, that's a
-**hard blocker → stop and ask me**, never a silent change.
+**Stop on ANY of:**
+1. **Done** — Acceptance met and final verify passes.
+2. **Budget cap** — `check_acceptance` returns HARD STOP (3 fix-rounds reached).
+3. **Hard blocker** — constitution violation, unapproved scope/architecture decision, or worker believes `acceptance.sh` is wrong (must escalate, never change it silently).
 
-The loop, per task in order:
-- `worker` implements the next task (code + its own unit/behaviour tests). A new task discovered
-  mid-flight (scope expansion or an unfixed finding) gets its own `task-NN.md` first (→ `tracker.md`).
-- **Verify** = two parts, run after every 5 completed tasks (trajectory) and once at the end (output); ≤5 tasks → end only:
-  - **(a) Acceptance — deterministic, authoritative.** Call the **`check_acceptance`** tool (`slug` = the work-item slug). Its **PASS/FAIL is the verdict** — never treat acceptance as met if it returns FAIL. A FAIL → feed its **real output** back to `worker` to fix, then re-run `check_acceptance`.
-  - **(b) Judgment.** A fresh-context `reviewer` via `/review-loop` against `review-rubric.md` for constitution, correctness, simplicity, and a sanity-check that `acceptance.sh` genuinely tests the intent. Judgment adds findings; it cannot turn a `check_acceptance` FAIL into a pass.
-- Verify **fails** → feed findings back → `worker` fixes → re-verify. Verify **passes** → continue. Update `set_stage`.
-
-**Stop conditions — on ANY, stop and surface to me (write `gate3.md`); do not push through:**
-1. **Done** — all Acceptance met and the final verify passes.
-2. **Budget cap** — more than **3 fix-rounds on one task**, or a total run cap I set, is hit → stop rather than burn tokens unattended.
-3. **Hard blocker** — a constitution violation it can't resolve, or an unapproved product/scope/architecture decision.
-
-If you think a reviewer is wrong, note it and continue — surface the disagreement at the end, don't halt on it.
+Note reviewer disagreements and surface at the end; don't halt on them.
 
 ## 4. Done → pause for my review
-Write `.pi/work/<slug>/gate3.md` (result summary · open findings · reviewer disagreements · scope
-expansions · acceptance result). End it with an **`## Outcomes`** block (this is the trace a future
-self-improvement pass learns from — keep it honest): `acceptance: PASS/FAIL` · `fix-rounds: N` ·
-`human-escalations: N` · `reviewer-findings: N` · `notes: what was awkward / where the harness fought you`.
-Commit the work **on the branch** `pi-compound/<slug>`. **Show me `gate3.md` plus the branch diff
-(`git diff main...HEAD`), then stop.** Do **not** merge to `main` and do **not** push — I review and do that.
+Write `.pi/work/<slug>/gate3.md` (result summary · open findings · disagreements · scope expansions · acceptance result) with an **`## Outcomes`** block: `acceptance: PASS/FAIL` · `fix-rounds: N` · `human-escalations: N` · `reviewer-findings: N` · `notes: what was awkward`.
+Commit on the branch. Show me `gate3.md` + `git diff main...HEAD`, then stop. Do not merge or push.

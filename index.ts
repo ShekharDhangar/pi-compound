@@ -6,16 +6,16 @@
 //   1. The Layer-2 guardrail hook (cooperative; enforcement must be code).
 //   2. A `set_stage` tool so the workflow prompt can drive the live footer indicator.
 //
-// Install: `pi install` from this dir, or project-local `cp index.ts <proj>/.pi/extensions/pi-compound.ts`.
+// Install: `pi install npm:@shekhardhangar/pi-compound`, `pi install git:github.com/ShekharDhangar/pi-compound`, or `pi install ./`.
 // Hook firings are logged to ~/.pi/pi-compound-hook.log (with pid → proves children inherit it).
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 const HOOK_LOG = `${homedir()}/.pi/pi-compound-hook.log`;
 
@@ -46,7 +46,11 @@ function frozenAcceptanceReason(abs: string): string | null {
     if (parts[i - 1] === ".pi" && parts[i] === "work" && i + 3 === parts.length) {
       const file = parts[i + 2]!;
       const slugDir = parts.slice(0, i + 2).join("/"); // …/.pi/work/<slug>
-      if ((file === "acceptance.sh" || file.startsWith("expected")) && existsSync(join(slugDir, ".frozen"))) {
+      if (!existsSync(join(slugDir, ".frozen"))) continue;
+      if (file === "spec.md") {
+        return "frozen spec — scope is locked after approval; escalate to the human to change it";
+      }
+      if (file === "acceptance.sh" || file.startsWith("expected")) {
         return "frozen acceptance — the implementer cannot change the approved test; escalate to the human to change it";
       }
     }
@@ -95,6 +99,17 @@ export default function (pi: ExtensionAPI) {
     if (target === undefined) return;
 
     const abs = isAbsolute(target) ? target : resolve(ctx.cwd, target);
+
+    // Enforce red-green before freeze: .frozen must not be created until check_acceptance
+    // has confirmed a FAIL on the unchanged code (sentinel written by check_acceptance itself).
+    if (basename(abs) === ".frozen") {
+      const redGreenPath = join(dirname(abs), ".red-green-passed");
+      if (!existsSync(redGreenPath)) {
+        logHook({ cwd: ctx.cwd, tool: event.toolName, path: abs, blocked: true, reason: "no-red-green" });
+        return { block: true, reason: `pi-compound: ${abs} — cannot freeze before red-green check. Run check_acceptance on unchanged code first and confirm it returns FAIL.` };
+      }
+    }
+
     const reason = protectReason(abs) ?? frozenAcceptanceReason(abs);
     logHook({ cwd: ctx.cwd, tool: event.toolName, path: abs, blocked: reason !== null });
     if (reason) return { block: true, reason: `pi-compound: ${abs} — ${reason}.` };
@@ -135,7 +150,8 @@ export default function (pi: ExtensionAPI) {
       "and you must fall back to manual judgment and flag LOW CONFIDENCE at the gate.",
     parameters: Type.Object({ slug: Type.String({ description: "work-item slug under .pi/work/" }) }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const script = join(ctx.cwd, ".pi", "work", params.slug, "acceptance.sh");
+      const slugDir = join(ctx.cwd, ".pi", "work", params.slug);
+      const script = join(slugDir, "acceptance.sh");
       if (!existsSync(script)) {
         return {
           content: [{ type: "text", text: `NO_ACCEPTANCE_SCRIPT at ${script}. No executable acceptance — fall back to judgment and flag LOW CONFIDENCE at the gate.` }],
@@ -144,9 +160,45 @@ export default function (pi: ExtensionAPI) {
       }
       const { code, out } = await runScript(script, ctx.cwd);
       const pass = code === 0;
+      const frozen = existsSync(join(slugDir, ".frozen"));
+
+      if (pass) {
+        return {
+          content: [{ type: "text", text: `ACCEPTANCE PASS (exit ${code}) — AUTHORITATIVE.\n--- real output of acceptance.sh ---\n${out || "(no output)"}` }],
+          details: { pass: true, exitCode: code },
+        };
+      }
+
+      if (!frozen) {
+        // Pre-freeze FAIL: write red-green sentinel so the hook allows .frozen to be created.
+        const redGreenPath = join(slugDir, ".red-green-passed");
+        if (!existsSync(redGreenPath)) {
+          try { writeFileSync(redGreenPath, ""); } catch { /* non-fatal */ }
+        }
+        return {
+          content: [{ type: "text", text: `ACCEPTANCE FAIL (exit ${code}) — AUTHORITATIVE. Red-green confirmed ✓ — the test discriminates; you may proceed to freeze.\n--- real output of acceptance.sh ---\n${out || "(no output)"}` }],
+          details: { pass: false, exitCode: code, redGreenConfirmed: true },
+        };
+      }
+
+      // Post-freeze FAIL: track fix rounds and hard-stop at cap.
+      const FIX_CAP = 3;
+      const fixRoundsPath = join(slugDir, ".fix-rounds");
+      let fixRounds = 0;
+      try { fixRounds = parseInt(readFileSync(fixRoundsPath, "utf8").trim(), 10) || 0; } catch { /* first round */ }
+      fixRounds += 1;
+      try { writeFileSync(fixRoundsPath, String(fixRounds)); } catch { /* non-fatal */ }
+
+      if (fixRounds >= FIX_CAP) {
+        return {
+          content: [{ type: "text", text: `ACCEPTANCE FAIL (exit ${code}) — HARD STOP: fix-rounds cap (${FIX_CAP}) reached on "${params.slug}". Stop the unattended loop and surface to the human. Do not assign another worker round.\n--- real output of acceptance.sh ---\n${out || "(no output)"}` }],
+          details: { pass: false, exitCode: code, hardStop: true, fixRounds },
+        };
+      }
+
       return {
-        content: [{ type: "text", text: `ACCEPTANCE ${pass ? "PASS" : "FAIL"} (exit ${code}) — AUTHORITATIVE.\n--- real output of acceptance.sh ---\n${out || "(no output)"}` }],
-        details: { pass, exitCode: code },
+        content: [{ type: "text", text: `ACCEPTANCE FAIL (exit ${code}) — AUTHORITATIVE. Fix-round ${fixRounds}/${FIX_CAP}.\n--- real output of acceptance.sh ---\n${out || "(no output)"}` }],
+        details: { pass: false, exitCode: code, fixRounds },
       };
     },
   });

@@ -5,13 +5,12 @@ inherit it) and the **`set_stage`** footer tool. Orchestration itself is the pro
 
 ## Setup
 ```bash
-mkdir -p ~/tmp/pc-test/.pi/extensions ~/tmp/pc-test/.pi/prompts && cd ~/tmp/pc-test
-cp ~/code/pi-compound/index.ts            .pi/extensions/pi-compound.ts
-cp ~/code/pi-compound/prompts/*.md        .pi/prompts/
-cp ~/code/pi-compound/AGENTS.md           .          # contains the constitution
+mkdir -p ~/tmp/pc-test && cd ~/tmp/pc-test
+pi install -l ~/code/pi-compound          # or: pi install -l git:github.com/ShekharDhangar/pi-compound
+cp ~/code/pi-compound/templates/AGENTS.template.md ./AGENTS.md
 git init -q
 : > ~/.pi/pi-compound-hook.log
-pi                                                    # accept project trust so .pi/ loads
+pi                                        # accept project trust so .pi/ loads
 ```
 
 ## Test 1 — hook blocks sensitive paths, allows normal ones (parent)

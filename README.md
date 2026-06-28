@@ -28,14 +28,68 @@ and puts the engineering into the thing that determines whether autonomy is safe
 
 ## Install
 
+pi-compound is a [pi package](https://pi.dev/packages): install it once globally, or pin it per project.
+
+### Prerequisites
+
 ```bash
 pi install npm:pi-subagents      # required (spawning + /review-loop + /parallel-research)
 pi install npm:pi-web-search     # optional (research fan-out)
-# then install pi-compound (global ~/.pi/agent/extensions or project-local .pi/extensions):
-cp index.ts <project>/.pi/extensions/pi-compound.ts
-cp -r prompts <project>/.pi/prompts
-cp AGENTS.md <project>/        # edit the constitution section for your project
 ```
+
+### Global (all projects)
+
+```bash
+pi install npm:@shekhardhangar/pi-compound
+pi install git:github.com/ShekharDhangar/pi-compound
+pi install /path/to/pi-compound  # local clone
+```
+
+Extension + prompts load automatically whenever you run `pi` in any project.
+
+### Project-local (team pin)
+
+```bash
+cd your-project
+pi install -l npm:@shekhardhangar/pi-compound
+pi install -l git:github.com/ShekharDhangar/pi-compound@v0.1.0
+pi install -l /path/to/pi-compound
+```
+
+Writes to `.pi/settings.json`; teammates get the same package after trusting the project.
+
+### Try without installing
+
+```bash
+pi -e npm:@shekhardhangar/pi-compound
+pi -e git:github.com/ShekharDhangar/pi-compound
+```
+
+### Per-project bootstrap (one time)
+
+Copy the bundled template and edit the constitution for your repo:
+
+```bash
+# npm install (global):
+cp ~/.pi/agent/npm/node_modules/@shekhardhangar/pi-compound/templates/AGENTS.template.md ./AGENTS.md
+
+# npm install (project-local, -l):
+cp .pi/npm/node_modules/@shekhardhangar/pi-compound/templates/AGENTS.template.md ./AGENTS.md
+
+# git or local path install:
+cp /path/to/pi-compound/templates/AGENTS.template.md ./AGENTS.md
+```
+
+## Usage
+
+In any project with pi-compound installed and `AGENTS.md` bootstrapped:
+
+```
+/workflow-issue fix the broken README install link
+/workflow-feature add user-facing settings for dark mode
+```
+
+See `templates/AGENTS.template.md` for the full loop, artifacts, gates, and verifier rules.
 
 ## Files
 
@@ -43,7 +97,7 @@ cp AGENTS.md <project>/        # edit the constitution section for your project
 |---|---|
 | `index.ts` | the extension: guardrail hook · frozen-acceptance enforcement · `set_stage` footer · `check_acceptance` |
 | `prompts/` | the orchestration — `workflow-issue.md`, `workflow-feature.md`, `review-rubric.md` |
-| `AGENTS.md` | map + loop + the project constitution (edit per project) |
+| `templates/AGENTS.template.md` | workflow map + constitution template (copy to `AGENTS.md` in each repo) |
 | `SMOKE-TEST.md` | how to verify the hook, child inheritance, and a workflow run |
 
 ## Status

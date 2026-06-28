@@ -1,47 +1,57 @@
-# pi-compound — map & loop (native context, inherited by children)
+# pi-compound — project context (this repo)
 
-This file is loaded into every session (parent and `pi-subagents` children, because they set
-`inheritProjectContext: true`). It carries the **map** of the workflow and the **constitution**
-so every agent — planner, worker, reviewer — is governed by the same rules.
+Source repo for the **pi-compound** pi package: a verifier-centered engineering workflow built on
+[`pi-subagents`](https://github.com/nicobailon/pi-subagents).
 
-## The loop
-- `/workflow-issue <text>` — direct path: spec → plan → (approve) → implement → review → (approve) → commit.
-- `/workflow-feature <text>` — full path: brainstorm → (approve spec) → plan → (approve) → implement → review → (approve) → commit.
-- Orchestration is **parent-driven** (the workflow prompt is guidance, not a runtime engine).
-- Models per role: set in `pi-subagents` `agentOverrides` (worker = mid, reviewer = strong). Never
-  set an `extensions:` field on an agent — it disables extension discovery and drops pi-compound's
-  guardrails in that child.
+- **GitHub:** https://github.com/ShekharDhangar/pi-compound
+- **npm:** `@shekhardhangar/pi-compound`
+- **Install:** `pi install npm:@shekhardhangar/pi-compound` (or `pi install git:github.com/ShekharDhangar/pi-compound`)
 
-## Artifacts (under `.pi/work/<slug>/`)
-`spec.md` (Intent · Context · Acceptance) · **`acceptance.sh`** (the executable target — exits 0 iff
-done) · `plan/` (`tracker.md` + one `task-NN.md` per task) · `reviews/` · `gate3.md`. Agents author
-these. The `pi-compound` extension blocks edits to genuinely sensitive paths (`.env`, lockfiles, `constitution.md`).
+## What this repo is
 
-## The verifier has teeth (don't trust model "PASS")
-Acceptance pass/fail is **deterministic**: the `check_acceptance` tool runs `acceptance.sh` and the real
-exit code is the verdict — no agent may declare acceptance met over a `check_acceptance` FAIL. A model
-reviewer adds judgment (constitution, correctness, simplicity, *and whether `acceptance.sh` truly tests
-the intent*) but cannot override the deterministic result.
+A small pi **extension + prompt templates**, not an application. Milestone 1 ships:
 
-## Branch isolation
-Every work item runs on its own branch `pi-compound/<slug>` — the unattended loop never touches
-`main` and **never pushes** (the extension blocks `git push`). The human reviews the branch diff at
-gate 3 and merges/pushes. If the tree is dirty at the start, the loop stops and asks.
+| Path | Role |
+|---|---|
+| `index.ts` | Guardrail hook · frozen-acceptance enforcement · `set_stage` footer · `check_acceptance` |
+| `prompts/` | `/workflow-issue`, `/workflow-feature`, `review-rubric` orchestration |
+| `templates/AGENTS.template.md` | Consumer template — copy into target projects as `AGENTS.md` |
+| `SMOKE-TEST.md` | Manual verification checklist |
+| `README.md` | Install and usage docs |
 
-## Human gates
-Approve the **target** (`acceptance.sh`, + spec on the feature path) before implementation · plan
-approval · final review + merge/push authorisation. Between approval and the final pause,
-implementation runs **autonomously** — nothing halts; disagreements are logged for the final review.
+Orchestration is **prompt-driven** (parent follows workflow prompts). Code only does what prompts cannot: enforce guardrails and run the deterministic verifier.
+
+## Working in this repo
+
+- **Do not** use `/workflow-issue` or `/workflow-feature` here unless explicitly testing the smoke path — this repo is the harness source, not a consumer project.
+- Prefer surgical edits: extension logic in `index.ts`, orchestration in `prompts/`, docs in `README.md` / `SMOKE-TEST.md`.
+- Run smoke checks from `SMOKE-TEST.md` after hook or verifier changes.
+- Test local install: `pi install ./` or `pi install -l ./` from this directory.
+- Unscoped npm name `pi-compound` is taken by another package; publish only as `@shekhardhangar/pi-compound`.
+
+## The loop (for consumer projects)
+
+Downstream projects install the package globally or per-project, copy `templates/AGENTS.template.md` → `AGENTS.md`, then run:
+
+- `/workflow-issue <text>` — spec → plan → (approve) → implement → review → (approve) → commit
+- `/workflow-feature <text>` — brainstorm → (approve spec) → plan → (approve) → implement → review → (approve) → commit
+
+Artifacts live under `.pi/work/<slug>/`: `spec.md`, **`acceptance.sh`**, `plan/`, `reviews/`, `gate3.md`.
+
+**Verifier:** `check_acceptance` runs `acceptance.sh`; exit code 0 is the only PASS. Models cannot override a FAIL.
+
+**Branch isolation:** work on `pi-compound/<slug>`; hook blocks `git push` and edits to `main`.
+
+**Child agents:** inherit this extension automatically via pi-subagents — never set `extensions:` on subagent configs.
 
 ---
 
-# constitution.md (project rules — edit per project)
-
-> Hard, non-negotiable rules. The reviewer treats violations as blockers; the extension blocks
-> edits to this file. Replace these with your project's real invariants.
+# constitution.md (this repo)
 
 1. Prefer the simplest thing that solves the problem; delete before you add.
 2. Surgical, scoped changes — stay within the task's declared files unless you justify expanding.
 3. No silent failures: handle or surface errors; never swallow them.
 4. Match existing patterns in the codebase over introducing new ones.
-5. Tests accompany behaviour changes.
+5. Extension stays tiny: guardrails + verifier + footer only; orchestration stays in prompts.
+6. Docs and install paths must stay accurate — this package is consumed globally across projects.
+7. `acceptance.sh` patterns in workflow docs must remain non-gameable (no trivial pass stubs).
