@@ -28,6 +28,7 @@ Orchestration is **prompt-driven** (parent follows workflow prompts). Code only 
 - Run smoke checks from `SMOKE-TEST.md` after hook or verifier changes.
 - Test local install: `pi install ./` or `pi install -l ./` from this directory.
 - Unscoped npm name `pi-compound` is taken by another package; publish only as `@shekhardhangar/pi-compound`.
+- **Commits carry no agent attribution** — no `Co-authored-by:` trailers or “Generated with …” lines.
 
 ## The loop (for consumer projects)
 
