@@ -34,7 +34,7 @@ pi-compound is a [pi package](https://pi.dev/packages): install it once globally
 
 ```bash
 pi install npm:pi-subagents      # required (spawning + /review-loop + /parallel-research)
-pi install npm:pi-web-search     # optional (research fan-out)
+pi install npm:pi-web-access     # optional (research fan-out: `/parallel-research`)
 ```
 
 ### Global (all projects)
